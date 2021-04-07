@@ -7,6 +7,7 @@ from torch.utils import data
 from torchvision import transforms as T
 from torchvision.transforms import functional as F
 from PIL import Image
+from pydicom import dcmread
 
 class ImageFolder(data.Dataset):
     def __init__(self, root,image_size=224,mode='train',augmentation_prob=0.4):
@@ -28,10 +29,35 @@ class ImageFolder(data.Dataset):
         image_path = self.image_paths[index]
         #print(f'image_path: {image_path}')
         #filename = image_path.split('_')[-1][:-len(".jpg")]
-        GT_path = image_path.split('.png')[0] + '_gt.png'
         
-
-        image = Image.open(image_path).convert('RGB')
+        GT_path = image_path.split('.dcm')[0] + '_gt.png'
+        
+        #Windowing (CT)
+        #https://radiopaedia.org/articles/windowing-ct
+        ds = dcmread(image_path)
+        image = ds.pixel_array
+        h, w = image.shape
+        image = image.astype('float64')
+        intercept = ds.RescaleIntercept
+        try:
+            wc = ds.WindowCenter[0]
+            ww = ds.WindowWidth[0]
+            UL = wc + ww/2
+            LL = wc - ww/2
+        except:
+            wc = ds.WindowCenter
+            ww = ds.WindowWidth
+            UL = wc + ww/2
+            LL = wc - ww/2
+        slope = ds.RescaleSlope
+        image -= (-intercept+LL)
+        image[image<0] = 0
+        image[image>(UL-LL)] = UL-LL
+        image *= 255.0/image.max()
+        image = image.astype('uint8')
+        image = Image.fromarray(image)
+        image = image.convert('RGB')
+        
         GT = Image.open(GT_path)
         
         #aspect_ratio = image.size[1]/image.size[0]

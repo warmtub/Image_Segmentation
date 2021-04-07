@@ -10,15 +10,15 @@ import torch.nn.functional as F
 from evaluation import *
 from network import U_Net,R2U_Net,AttU_Net,R2AttU_Net
 import csv
+from sklearn.model_selection import KFold
+from torch.utils.data.sampler import SubsetRandomSampler
 
 
 class Solver(object):
-    def __init__(self, config, train_loader, valid_loader, test_loader):
+    def __init__(self, config, train_valid_loader):
 
         # Data loader
-        self.train_loader = train_loader
-        self.valid_loader = valid_loader
-        self.test_loader = test_loader
+        self.train_valid_loader = train_valid_loader
 
         # Models
         self.unet = None
@@ -34,6 +34,7 @@ class Solver(object):
         self.beta2 = config.beta2
 
         # Training settings
+        self.n_splits = config.n_splits
         self.num_epochs = config.num_epochs
         self.num_epochs_decay = config.num_epochs_decay
         self.batch_size = config.batch_size
@@ -111,7 +112,7 @@ class Solver(object):
         #====================================== Training ===========================================#
         #===========================================================================================#
         
-        unet_path = os.path.join(self.model_path, '%s-%d-%.4f-%d-%.4f.pkl' %(self.model_type,self.num_epochs,self.lr,self.num_epochs_decay,self.augmentation_prob))
+        unet_path = os.path.join(self.model_path, '%s-%d.pkl' % (self.model_type,self.num_epochs))
 
         # U-Net Train
         if os.path.isfile(unet_path):
@@ -123,8 +124,8 @@ class Solver(object):
             lr = self.lr
             best_unet_score = 0.
             
-            for epoch in range(self.num_epochs):
-
+            for epoch in range(int(self.num_epochs/self.n_splits)):
+                
                 self.unet.train(True)
                 epoch_loss = 0
                 
@@ -136,121 +137,132 @@ class Solver(object):
                 JS = 0.        # Jaccard Similarity
                 DC = 0.        # Dice Coefficient
                 length = 0
+                
+                
 
-                for i, (images, GT) in enumerate(self.train_loader):
+                kfold = KFold(n_splits=self.n_splits, shuffle=True)
+                for fold, (train_index, valid_index) in enumerate(kfold.split(self.train_valid_loader.dataset)):
                     # GT : Ground Truth
+                    train_sampler = SubsetRandomSampler(train_index)
+                    valid_sampler = SubsetRandomSampler(valid_index)
 
-                    images = images.to(self.device)
-                    GT = GT.to(self.device)
-
-                    # SR : Segmentation Result
-                    SR = self.unet(images)
-                    SR_probs = F.sigmoid(SR)
-                    SR_flat = SR_probs.view(SR_probs.size(0),-1)
-
-                    GT_flat = GT.view(GT.size(0),-1)
-                    loss = self.criterion(SR_flat,GT_flat)
-                    epoch_loss += loss.item()
-
-                    # Backprop + optimize
-                    self.reset_grad()
-                    loss.backward()
-                    self.optimizer.step()
-
-                    acc += get_accuracy(SR,GT)
-                    SE += get_sensitivity(SR,GT)
-                    SP += get_specificity(SR,GT)
-                    PC += get_precision(SR,GT)
-                    F1 += get_F1(SR,GT)
-                    JS += get_JS(SR,GT)
-                    DC += get_DC(SR,GT)
-                    length += images.size(0)
-
-                acc = acc/length
-                SE = SE/length
-                SP = SP/length
-                PC = PC/length
-                F1 = F1/length
-                JS = JS/length
-                DC = DC/length
-
-                # Print the log info
-                print('Epoch [%d/%d], Loss: %.4f, \n[Training] Acc: %.4f, SE: %.4f, SP: %.4f, PC: %.4f, F1: %.4f, JS: %.4f, DC: %.4f' % (
-                      epoch+1, self.num_epochs, \
-                      epoch_loss,\
-                      acc,SE,SP,PC,F1,JS,DC))
-
-            
-
-                # Decay learning rate
-                if (epoch+1) > (self.num_epochs - self.num_epochs_decay):
-                    lr -= (self.lr / float(self.num_epochs_decay))
-                    for param_group in self.optimizer.param_groups:
-                        param_group['lr'] = lr
-                    print ('Decay learning rate to lr: {}.'.format(lr))
-                
-                
-                #===================================== Validation ====================================#
-                self.unet.train(False)
-                self.unet.eval()
-
-                acc = 0.    # Accuracy
-                SE = 0.        # Sensitivity (Recall)
-                SP = 0.        # Specificity
-                PC = 0.     # Precision
-                F1 = 0.        # F1 Score
-                JS = 0.        # Jaccard Similarity
-                DC = 0.        # Dice Coefficient
-                length=0
-                for i, (images, GT) in enumerate(self.valid_loader):
-
-                    images = images.to(self.device)
-                    GT = GT.to(self.device)
-                    SR = F.sigmoid(self.unet(images))
-                    acc += get_accuracy(SR,GT)
-                    SE += get_sensitivity(SR,GT)
-                    SP += get_specificity(SR,GT)
-                    PC += get_precision(SR,GT)
-                    F1 += get_F1(SR,GT)
-                    JS += get_JS(SR,GT)
-                    DC += get_DC(SR,GT)
-                        
-                    length += images.size(0)
+                    train_loader = torch.utils.data.DataLoader(self.train_valid_loader.dataset, batch_size=self.batch_size, sampler=train_sampler)
+                    valid_loader = torch.utils.data.DataLoader(self.train_valid_loader.dataset, batch_size=self.batch_size, sampler=valid_sampler)
                     
-                acc = acc/length
-                SE = SE/length
-                SP = SP/length
-                PC = PC/length
-                F1 = F1/length
-                JS = JS/length
-                DC = DC/length
-                unet_score = JS + DC
+                    for i, (images, GT) in enumerate(train_loader):
 
-                print('[Validation] Acc: %.4f, SE: %.4f, SP: %.4f, PC: %.4f, F1: %.4f, JS: %.4f, DC: %.4f'%(acc,SE,SP,PC,F1,JS,DC))
-                
-                '''
-                torchvision.utils.save_image(images.data.cpu(),
-                                            os.path.join(self.result_path,
-                                                        '%s_valid_%d_image.png'%(self.model_type,epoch+1)))
-                torchvision.utils.save_image(SR.data.cpu(),
-                                            os.path.join(self.result_path,
-                                                        '%s_valid_%d_SR.png'%(self.model_type,epoch+1)))
-                torchvision.utils.save_image(GT.data.cpu(),
-                                            os.path.join(self.result_path,
-                                                        '%s_valid_%d_GT.png'%(self.model_type,epoch+1)))
-                '''
+                        images = images.to(self.device)
+                        GT = GT.to(self.device)
+
+                        # SR : Segmentation Result
+                        SR = self.unet(images)
+                        SR_probs = F.sigmoid(SR)
+                        SR_flat = SR_probs.view(SR_probs.size(0),-1)
+
+                        GT_flat = GT.view(GT.size(0),-1)
+                        loss = self.criterion(SR_flat,GT_flat)
+                        epoch_loss += loss.item()
+
+                        # Backprop + optimize
+                        self.reset_grad()
+                        loss.backward()
+                        self.optimizer.step()
+
+                        acc += get_accuracy(SR,GT)
+                        SE += get_sensitivity(SR,GT)
+                        SP += get_specificity(SR,GT)
+                        PC += get_precision(SR,GT)
+                        F1 += get_F1(SR,GT)
+                        JS += get_JS(SR,GT)
+                        DC += get_DC(SR,GT)
+                        length += images.size(0)
+
+                    acc = acc/length
+                    SE = SE/length
+                    SP = SP/length
+                    PC = PC/length
+                    F1 = F1/length
+                    JS = JS/length
+                    DC = DC/length
+
+                    # Print the log info
+                    print('Epoch [%d/%d], Loss: %.4f, \n[Training] Acc: %.4f, SE: %.4f, SP: %.4f, PC: %.4f, F1: %.4f, JS: %.4f, DC: %.4f' % (
+                          epoch*self.n_splits+fold+1, self.num_epochs, \
+                          epoch_loss,\
+                          acc,SE,SP,PC,F1,JS,DC))
 
 
-                # Save Best U-Net model
-                print(f'model score: {unet_score} ({best_unet_score})')
-                if unet_score > best_unet_score:
-                    best_unet_score = unet_score
-                    best_epoch = epoch
-                    best_unet = self.unet.state_dict()
-                    print('Best %s model score : %.4f'%(self.model_type,best_unet_score))
-                    torch.save(best_unet,unet_path)
+
+                    # Decay learning rate
+                    if (epoch+1) > (self.num_epochs - self.num_epochs_decay):
+                        lr -= (self.lr / float(self.num_epochs_decay))
+                        for param_group in self.optimizer.param_groups:
+                            param_group['lr'] = lr
+                        print ('Decay learning rate to lr: {}.'.format(lr))
+
+
+                    #===================================== Validation ====================================#
+                    self.unet.train(False)
+                    self.unet.eval()
+
+                    acc = 0.    # Accuracy
+                    SE = 0.        # Sensitivity (Recall)
+                    SP = 0.        # Specificity
+                    PC = 0.     # Precision
+                    F1 = 0.        # F1 Score
+                    JS = 0.        # Jaccard Similarity
+                    DC = 0.        # Dice Coefficient
+                    length=0
+                    for i, (images, GT) in enumerate(valid_loader):
+
+                        images = images.to(self.device)
+                        GT = GT.to(self.device)
+                        SR = F.sigmoid(self.unet(images))
+                        acc += get_accuracy(SR,GT)
+                        SE += get_sensitivity(SR,GT)
+                        SP += get_specificity(SR,GT)
+                        PC += get_precision(SR,GT)
+                        F1 += get_F1(SR,GT)
+                        JS += get_JS(SR,GT)
+                        DC += get_DC(SR,GT)
+
+                        length += images.size(0)
+
+                    acc = acc/length
+                    SE = SE/length
+                    SP = SP/length
+                    PC = PC/length
+                    F1 = F1/length
+                    JS = JS/length
+                    DC = DC/length
+                    unet_score = JS + DC
+
+                    print('[Validation] Acc: %.4f, SE: %.4f, SP: %.4f, PC: %.4f, F1: %.4f, JS: %.4f, DC: %.4f'%(acc,SE,SP,PC,F1,JS,DC))
+
+                    '''
+                    torchvision.utils.save_image(images.data.cpu(),
+                                                os.path.join(self.result_path,
+                                                            '%s_valid_%d_image.png'%(self.model_type,epoch+1)))
+                    torchvision.utils.save_image(SR.data.cpu(),
+                                                os.path.join(self.result_path,
+                                                            '%s_valid_%d_SR.png'%(self.model_type,epoch+1)))
+                    torchvision.utils.save_image(GT.data.cpu(),
+                                                os.path.join(self.result_path,
+                                                            '%s_valid_%d_GT.png'%(self.model_type,epoch+1)))
+                    '''
+
+
+                    # Save Best U-Net model
+                    print(f'model score: {unet_score} ({best_unet_score})')
+                    if unet_score > best_unet_score:
+                        best_unet_score = unet_score
+                        best_epoch = epoch
+                        best_unet = self.unet.state_dict()
+                        print('Best %s model score : %.4f'%(self.model_type,best_unet_score))
+                        torch.save(best_unet,unet_path)
                     
             #===================================== Test ====================================#
+            """
             del self.unet
             del best_unet
             self.build_model()
@@ -296,6 +308,5 @@ class Solver(object):
             wr = csv.writer(f)
             wr.writerow([self.model_type,acc,SE,SP,PC,F1,JS,DC,self.lr,best_epoch,self.num_epochs,self.num_epochs_decay,self.augmentation_prob])
             f.close()
-            
-
+            """
             
