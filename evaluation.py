@@ -6,9 +6,11 @@ import torch
 def get_accuracy(SR,GT,threshold=0.5):
     SR = SR > threshold
     GT = GT == torch.max(GT)
-    corr = torch.sum(SR==GT)
+    corr = torch.sum(SR.byte()==GT.byte())
     tensor_size = SR.size(0)*SR.size(1)*SR.size(2)*SR.size(3)
     acc = float(corr)/float(tensor_size)
+    #print(f'acc: {SR.any()}, {GT.any()}')
+    #print(f'acc: {corr}, {tensor_size}')
 
     return acc
 
@@ -19,10 +21,10 @@ def get_sensitivity(SR,GT,threshold=0.5):
 
     # TP : True Positive
     # FN : False Negative
-    TP = ((SR==1)+(GT==1))==2
-    FN = ((SR==0)+(GT==1))==2
+    TP = ((SR==1).byte()+(GT==1).byte())==2
+    FN = ((SR==0).byte()+(GT==1).byte())==2
 
-    SE = float(torch.sum(TP))/(float(torch.sum(TP+FN)) + 1e-6)     
+    SE = float(torch.sum(TP))/(float(torch.sum(SR)+torch.sum(GT)) + 1e-6)     
     
     return SE
 
@@ -32,10 +34,10 @@ def get_specificity(SR,GT,threshold=0.5):
 
     # TN : True Negative
     # FP : False Positive
-    TN = ((SR==0)+(GT==0))==2
-    FP = ((SR==1)+(GT==0))==2
+    TN = ((SR==0).byte()+(GT==0).byte())==2
+    FP = ((SR==1).byte()+(GT==0).byte())==2
 
-    SP = float(torch.sum(TN))/(float(torch.sum(TN+FP)) + 1e-6)
+    SP = float(torch.sum(TN))/(float(torch.sum(torch.sum(TN)+torch.sum(FP))) + 1e-6)
     
     return SP
 
@@ -45,10 +47,10 @@ def get_precision(SR,GT,threshold=0.5):
 
     # TP : True Positive
     # FP : False Positive
-    TP = ((SR==1)+(GT==1))==2
-    FP = ((SR==1)+(GT==0))==2
+    TP = ((SR==1).byte()+(GT==1).byte())==2
+    FP = ((SR==1).byte()+(GT==0).byte())==2
 
-    PC = float(torch.sum(TP))/(float(torch.sum(TP+FP)) + 1e-6)
+    PC = float(torch.sum(TP))/(float(torch.sum(TP)+torch.sum(FP)) + 1e-6)
 
     return PC
 
@@ -66,8 +68,10 @@ def get_JS(SR,GT,threshold=0.5):
     SR = SR > threshold
     GT = GT == torch.max(GT)
     
-    Inter = torch.sum((SR+GT)==2)
-    Union = torch.sum((SR+GT)>=1)
+    Inter = torch.sum((SR.byte()+GT.byte())==2)
+    Union = torch.sum((SR.byte()+GT.byte())>=1)
+    #print(f'JS: {SR.any()}, {GT.any()}')
+    #print(f'JS: {Inter}, {Union}')
     
     JS = float(Inter)/(float(Union) + 1e-6)
     
@@ -78,7 +82,7 @@ def get_DC(SR,GT,threshold=0.5):
     SR = SR > threshold
     GT = GT == torch.max(GT)
 
-    Inter = torch.sum((SR+GT)==2)
+    Inter = torch.sum((SR.byte()+GT.byte())==2)
     DC = float(2*Inter)/(float(torch.sum(SR)+torch.sum(GT)) + 1e-6)
 
     return DC
