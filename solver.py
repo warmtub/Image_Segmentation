@@ -112,13 +112,14 @@ class Solver(object):
         #====================================== Training ===========================================#
         #===========================================================================================#
         
-        unet_path = os.path.join(self.model_path, '%s-%d.pkl' % (self.model_type,self.num_epochs))
-
+        
         # U-Net Train
-        if os.path.isfile(unet_path):
-            # Load the pretrained Encoder
-            self.unet.load_state_dict(torch.load(unet_path))
-            print('%s is Successfully Loaded from %s'%(self.model_type,unet_path))
+        if False:
+            pass
+        #if os.path.isfile(unet_path):
+        #    # Load the pretrained Encoder
+        #    self.unet.load_state_dict(torch.load(unet_path))
+        #    print('%s is Successfully Loaded from %s'%(self.model_type,unet_path))
         else:
             # Train for Encoder
             lr = self.lr
@@ -194,7 +195,7 @@ class Solver(object):
 
 
                     # Decay learning rate
-                    if (epoch+1) > (self.num_epochs - self.num_epochs_decay):
+                    if (epoch*self.n_splits+fold+1) > (self.num_epochs - self.num_epochs_decay):
                         lr -= (self.lr / float(self.num_epochs_decay))
                         for param_group in self.optimizer.param_groups:
                             param_group['lr'] = lr
@@ -259,6 +260,7 @@ class Solver(object):
                         best_epoch = epoch
                         best_unet = self.unet.state_dict()
                         print('Best %s model score : %.4f'%(self.model_type,best_unet_score))
+                        unet_path = os.path.join(self.model_path, '%s-%d-%.3f.pkl' % (self.model_type, best_epoch, best_unet_score))
                         torch.save(best_unet,unet_path)
                     
             #===================================== Test ====================================#
