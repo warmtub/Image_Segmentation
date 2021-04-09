@@ -4,6 +4,8 @@ import torch
 # GT : Ground Truth
 
 def get_accuracy(SR,GT,threshold=0.5):
+    SR = SR[:, 1:, :, :]
+    GT = GT[:, 1:, :, :]
     SR = SR > threshold
     GT = GT == torch.max(GT)
     corr = torch.sum(SR.byte()==GT.byte())
@@ -16,6 +18,8 @@ def get_accuracy(SR,GT,threshold=0.5):
 
 def get_sensitivity(SR,GT,threshold=0.5):
     # Sensitivity == Recall
+    SR = SR[:, 1:, :, :]
+    GT = GT[:, 1:, :, :]
     SR = SR > threshold
     GT = GT == torch.max(GT)
 
@@ -29,6 +33,8 @@ def get_sensitivity(SR,GT,threshold=0.5):
     return SE
 
 def get_specificity(SR,GT,threshold=0.5):
+    SR = SR[:, 1:, :, :]
+    GT = GT[:, 1:, :, :]
     SR = SR > threshold
     GT = GT == torch.max(GT)
 
@@ -42,6 +48,8 @@ def get_specificity(SR,GT,threshold=0.5):
     return SP
 
 def get_precision(SR,GT,threshold=0.5):
+    SR = SR[:, 1:, :, :]
+    GT = GT[:, 1:, :, :]
     SR = SR > threshold
     GT = GT == torch.max(GT)
 
@@ -56,6 +64,8 @@ def get_precision(SR,GT,threshold=0.5):
 
 def get_F1(SR,GT,threshold=0.5):
     # Sensitivity == Recall
+    SR = SR[:, 1:, :, :]
+    GT = GT[:, 1:, :, :]
     SE = get_sensitivity(SR,GT,threshold=threshold)
     PC = get_precision(SR,GT,threshold=threshold)
 
@@ -65,6 +75,8 @@ def get_F1(SR,GT,threshold=0.5):
 
 def get_JS(SR,GT,threshold=0.5):
     # JS : Jaccard similarity
+    SR = SR[:, 1:, :, :]
+    GT = GT[:, 1:, :, :]
     SR = SR > threshold
     GT = GT == torch.max(GT)
     
@@ -79,6 +91,8 @@ def get_JS(SR,GT,threshold=0.5):
 
 def get_DC(SR,GT,threshold=0.5):
     # DC : Dice Coefficient
+    SR = SR[:, 1:, :, :]
+    GT = GT[:, 1:, :, :]
     SR = SR > threshold
     GT = GT == torch.max(GT)
 

@@ -13,6 +13,9 @@ import csv
 from sklearn.model_selection import KFold
 from torch.utils.data.sampler import SubsetRandomSampler
 
+import logging
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s', datefmt='%Y-%m-%d %H:%M', handlers=[logging.FileHandler('my.log', 'w', 'utf-8'), ])
 
 class Solver(object):
     def __init__(self, config, train_valid_loader):
@@ -93,6 +96,13 @@ class Solver(object):
     def reset_grad(self):
         """Zero the gradient buffers."""
         self.unet.zero_grad()
+        
+    def reset_model(self):
+        for layer in self.unet.children():
+            if hasattr(layer, 'reset_parameters'):
+                layer.reset_parameters()
+        self.optimizer = optim.Adam(list(self.unet.parameters()),
+                                      self.lr, [self.beta1, self.beta2])
 
     def compute_accuracy(self,SR,GT):
         SR_flat = SR.view(-1)
@@ -122,11 +132,16 @@ class Solver(object):
         #    print('%s is Successfully Loaded from %s'%(self.model_type,unet_path))
         else:
             # Train for Encoder
-            lr = self.lr
-            best_unet_score = 0.
-            
-            for epoch in range(int(self.num_epochs/self.n_splits)):
+            kfold = KFold(n_splits=self.n_splits, shuffle=True)
+            for fold, (train_index, valid_index) in enumerate(kfold.split(self.train_valid_loader.dataset)):
                 
+                print(f"Fold{fold} start")
+                logging.info(f"Fold{fold} start")
+                logging.info(f"train: {train_index} valid: {valid_index}")
+                self.reset_model()
+                lr = self.lr
+                best_unet_score = 0.
+            
                 self.unet.train(True)
                 epoch_loss = 0
                 
@@ -139,10 +154,8 @@ class Solver(object):
                 DC = 0.        # Dice Coefficient
                 length = 0
                 
-                
-
-                kfold = KFold(n_splits=self.n_splits, shuffle=True)
-                for fold, (train_index, valid_index) in enumerate(kfold.split(self.train_valid_loader.dataset)):
+                for epoch in range(int(self.num_epochs/self.n_splits)):
+                    
                     # GT : Ground Truth
                     train_sampler = SubsetRandomSampler(train_index)
                     valid_sampler = SubsetRandomSampler(valid_index)
@@ -157,7 +170,7 @@ class Solver(object):
 
                         # SR : Segmentation Result
                         SR = self.unet(images)
-                        SR_probs = F.sigmoid(SR)
+                        SR_probs = torch.sigmoid(SR)
                         SR_flat = SR_probs.view(SR_probs.size(0),-1)
 
                         GT_flat = GT.view(GT.size(0),-1)
@@ -188,7 +201,11 @@ class Solver(object):
 
                     # Print the log info
                     print('Epoch [%d/%d], Loss: %.4f, \n[Training] Acc: %.4f, SE: %.4f, SP: %.4f, PC: %.4f, F1: %.4f, JS: %.4f, DC: %.4f' % (
-                          epoch*self.n_splits+fold+1, self.num_epochs, \
+                          fold*self.num_epochs/self.n_splits+epoch+1, self.num_epochs, \
+                          epoch_loss,\
+                          acc,SE,SP,PC,F1,JS,DC))
+                    logging.info('Epoch [%d/%d], Loss: %.4f, \n[Training] Acc: %.4f, SE: %.4f, SP: %.4f, PC: %.4f, F1: %.4f, JS: %.4f, DC: %.4f' % (
+                          fold*self.num_epochs/self.n_splits+epoch+1, self.num_epochs, \
                           epoch_loss,\
                           acc,SE,SP,PC,F1,JS,DC))
 
@@ -218,7 +235,7 @@ class Solver(object):
 
                         images = images.to(self.device)
                         GT = GT.to(self.device)
-                        SR = F.sigmoid(self.unet(images))
+                        SR = torch.sigmoid(self.unet(images))
                         acc += get_accuracy(SR,GT)
                         SE += get_sensitivity(SR,GT)
                         SP += get_specificity(SR,GT)
@@ -239,6 +256,7 @@ class Solver(object):
                     unet_score = JS + DC
 
                     print('[Validation] Acc: %.4f, SE: %.4f, SP: %.4f, PC: %.4f, F1: %.4f, JS: %.4f, DC: %.4f'%(acc,SE,SP,PC,F1,JS,DC))
+                    logging.info('[Validation] Acc: %.4f, SE: %.4f, SP: %.4f, PC: %.4f, F1: %.4f, JS: %.4f, DC: %.4f'%(acc,SE,SP,PC,F1,JS,DC))
 
                     '''
                     torchvision.utils.save_image(images.data.cpu(),
@@ -255,12 +273,14 @@ class Solver(object):
 
                     # Save Best U-Net model
                     print(f'model score: {unet_score} ({best_unet_score})')
+                    logging.info((f'model score: {unet_score} ({best_unet_score})'))
                     if unet_score > best_unet_score:
                         best_unet_score = unet_score
-                        best_epoch = epoch
+                        best_epoch = fold*self.num_epochs/self.n_splits+epoch+1
                         best_unet = self.unet.state_dict()
                         print('Best %s model score : %.4f'%(self.model_type,best_unet_score))
-                        unet_path = os.path.join(self.model_path, '%s-%d-%.3f.pkl' % (self.model_type, best_epoch, best_unet_score))
+                        logging.info('Best %s model score : %.4f'%(self.model_type,best_unet_score))
+                        unet_path = os.path.join(self.model_path, '%s-f%d-%d-%.3f.pkl' % (self.model_type, fold, best_epoch, DC))
                         torch.save(best_unet,unet_path)
                     
             #===================================== Test ====================================#
@@ -285,7 +305,7 @@ class Solver(object):
 
                 images = images.to(self.device)
                 GT = GT.to(self.device)
-                SR = F.sigmoid(self.unet(images))
+                SR = torch.sigmoid(self.unet(images))
                 acc += get_accuracy(SR,GT)
                 SE += get_sensitivity(SR,GT)
                 SP += get_specificity(SR,GT)

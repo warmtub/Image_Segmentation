@@ -8,6 +8,8 @@ from torchvision import transforms as T
 from torchvision.transforms import functional as F
 from PIL import Image
 from pydicom import dcmread
+import json
+from labelme import utils
 
 class ImageFolder(data.Dataset):
     def __init__(self, root,image_size=224,mode='train',augmentation_prob=0.4):
@@ -17,20 +19,25 @@ class ImageFolder(data.Dataset):
         # GT : Ground Truth
         self.GT_paths = root[:-1]+'_GT/'
         self.image_paths = list(map(lambda x: os.path.join(root, x), os.listdir(root)))
-        self.image_paths = [path for path in self.image_paths if path.split('_')[-1] != 'gt.png']
+        self.image_paths = [path for path in self.image_paths if path.split('.')[-1] == 'dcm']
         self.image_size = image_size
         self.mode = mode
         self.RotationDegree = [0,90,180,270]
         self.augmentation_prob = augmentation_prob
         print("image count in {} path :{}".format(self.mode,len(self.image_paths)))
+        
+        self.label_name_to_value = {}
+        with open(os.path.join(self.root, "classes.txt")) as f:
+            value = 0
+            for line in f:
+                self.label_name_to_value[line[:-1]] = value
+                value += 1
 
     def __getitem__(self, index):
         """Reads an image from a file and preprocesses it and returns."""
         image_path = self.image_paths[index]
         #print(f'image_path: {image_path}')
         #filename = image_path.split('_')[-1][:-len(".jpg")]
-        
-        GT_path = image_path.split('.dcm')[0] + '_gt.png'
         
         #Windowing (CT)
         #https://radiopaedia.org/articles/windowing-ct
@@ -57,8 +64,6 @@ class ImageFolder(data.Dataset):
         image = image.astype('uint8')
         image = Image.fromarray(image)
         image = image.convert('RGB')
-        
-        GT = Image.open(GT_path)
         
         #aspect_ratio = image.size[1]/image.size[0]
         Transform = []
@@ -110,19 +115,22 @@ class ImageFolder(data.Dataset):
 
         #Transform.append(T.Resize((256,256)))
         Transform.append(T.ToTensor())
+        Transform.append(T.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)))
         Transform = T.Compose(Transform)
-        
         image = Transform(image)
+
+        GT_path = image_path.split('.dcm')[0] + '_1.json'
+        #GT = Image.open(GT_path)
+        json_data = json.load(open(GT_path))
+        gt_label = utils.shapes_to_label(ds.pixel_array.shape, json_data['shapes'], self.label_name_to_value)
+        gt_img = utils.draw_label(gt_label, ds.pixel_array)
         
-        GT = torch.tensor(np.array(GT), dtype=torch.int64)
-        #print('before', np.unique(GT), GT.shape)
-        GT = torch.nn.functional.one_hot(GT, 12).to(torch.float).permute(2,0,1)
-        #print('after', np.unique(GT), GT.shape)
+        #print('before', np.unique(gt_label), gt_label.shape)
+        gt_label = torch.tensor(np.array(gt_label), dtype=torch.int64)
+        gt_label = torch.nn.functional.one_hot(gt_label, 12).to(torch.float).permute(2,0,1)
+        #print('after', np.unique(gt_label), gt_label.shape)
 
-        Norm_ = T.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-        image = Norm_(image)
-
-        return image, GT
+        return image, gt_label
 
     def __len__(self):
         """Returns the total number of font files."""
