@@ -25,7 +25,7 @@ def main(config):
     augmentation_prob= random.random()*0.7
     #epoch = random.choice([100,150,200,250])
     epoch = config.num_epochs
-    decay_ratio = 0.8
+    decay_ratio = 0.5
     decay_epoch = int(epoch*decay_ratio)
 
     config.augmentation_prob = augmentation_prob
