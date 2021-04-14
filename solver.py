@@ -145,16 +145,16 @@ class Solver(object):
                 self.unet.train(True)
                 epoch_loss = 0
                 
-                acc = 0.    # Accuracy
-                SE = 0.        # Sensitivity (Recall)
-                SP = 0.        # Specificity
-                PC = 0.     # Precision
-                F1 = 0.        # F1 Score
-                JS = 0.        # Jaccard Similarity
-                DC = 0.        # Dice Coefficient
-                length = 0
-                
                 for epoch in range(int(self.num_epochs/self.n_splits)):
+                
+                    acc = 0.    # Accuracy
+                    SE = 0.        # Sensitivity (Recall)
+                    SP = 0.        # Specificity
+                    PC = 0.     # Precision
+                    F1 = 0.        # F1 Score
+                    JS = 0.        # Jaccard Similarity
+                    DC = 0.        # Dice Coefficient
+                    length = 0
                     
                     # GT : Ground Truth
                     train_sampler = SubsetRandomSampler(train_index)
@@ -198,6 +198,7 @@ class Solver(object):
                     F1 = F1/length
                     JS = JS/length
                     DC = DC/length
+                    print("training ", DC, length)
 
                     # Print the log info
                     print('Epoch [%d/%d], Loss: %.4f, \n[Training] Acc: %.4f, SE: %.4f, SP: %.4f, PC: %.4f, F1: %.4f, JS: %.4f, DC: %.4f' % (
@@ -254,6 +255,7 @@ class Solver(object):
                     JS = JS/length
                     DC = DC/length
                     unet_score = JS + DC
+                    print("valid ", DC, length)
 
                     print('[Validation] Acc: %.4f, SE: %.4f, SP: %.4f, PC: %.4f, F1: %.4f, JS: %.4f, DC: %.4f'%(acc,SE,SP,PC,F1,JS,DC))
                     logging.info('[Validation] Acc: %.4f, SE: %.4f, SP: %.4f, PC: %.4f, F1: %.4f, JS: %.4f, DC: %.4f'%(acc,SE,SP,PC,F1,JS,DC))

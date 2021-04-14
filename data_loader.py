@@ -123,7 +123,7 @@ class ImageFolder(data.Dataset):
         #GT = Image.open(GT_path)
         json_data = json.load(open(GT_path))
         gt_label = utils.shapes_to_label(ds.pixel_array.shape, json_data['shapes'], self.label_name_to_value)
-        gt_img = utils.draw_label(gt_label, ds.pixel_array)
+        #gt_img = utils.draw_label(gt_label, ds.pixel_array)
         
         #print('before', np.unique(gt_label), gt_label.shape)
         gt_label = torch.tensor(np.array(gt_label), dtype=torch.int64)
